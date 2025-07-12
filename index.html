@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Seleziona File da Drive</title>
+    
+    <style>
+        body {
+            font-family: system-ui, sans-serif;
+            background-color: #f4f4f4;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            padding: 0 40px;
+            border-radius: 10px;
+            width: 80%;
+            margin: 0 auto;
+        }
+        h1, h2 {
+            margin-top: 0;
+        }
+        button {
+            background-color: #005A9C;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            border-radius: 5px;
+            display: block;
+            width: 30%;
+            margin-bottom: 20px;
+            text-align: left;
+        }
+        #process-button {
+            background-color: #005A9C;
+        }
+        #file-list, #data-results {
+            text-align: left;
+            border: 1px solid #ddd;
+            padding: 15px;
+            min-height: 50px;
+            border-radius: 5px;
+        }
+        #file-list {
+            max-height: 300px;
+            overflow-y: auto;
+            background-color: white;
+        }
+        #file-list h3{
+            color: black;
+            margin-top: 0;
+        }
+        .file-item {
+            display: block;
+            margin-bottom: 10px;
+            cursor: pointer;
+        }
+        .file-item input {
+            margin-right: 10px;
+        }
+        .form-group {
+            text-align: left;
+            margin-bottom: 15px;
+            position: relative; /* Aggiunto per posizionare i suggerimenti */
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        textarea {
+            width: 100%;
+            padding: 10px;
+            box-sizing: border-box;
+            border-radius: 5px;
+            border: 1px solid #ddd;
+            font-family: system-ui, sans-serif;
+            min-height: 40px;
+        }
+        #search-container {
+            margin-top: 20px;
+        }
+        .table-wrapper {
+            width: 100%;
+            overflow-x: auto;
+        }
+        #data-results table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+        #data-results th, #data-results td {
+            padding: 8px;
+            border: 1px solid #ddd;
+            text-align: left;
+            font-size: 14px;
+        }
+        #data-results th {
+            background-color: #f2f2f2;
+            font-weight: bold;
+        }
+        /* Stili per l'autocomplete */
+        .autocomplete-suggestions {
+            border: 1px solid #ddd;
+            border-top: none;
+            max-height: 150px;
+            overflow-y: auto;
+            position: absolute;
+            width: 100%;
+            background-color: white;
+            z-index: 1000;
+            box-sizing: border-box;
+        }
+        .suggestion-item {
+            padding: 10px;
+            cursor: pointer;
+        }
+        .suggestion-item:hover {
+            background-color: #f0f0f0;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>Seleziona file in cui cercare</h1>
+        <button id="sync-button">Clicca per sincronizzare i file in drive</button>
+        <div id="file-list">
+            <p>Clicca il pulsante per caricare la lista dei file.</p>
+        </div>
+    </div>
+    
+    <div class="container" id="search-container">
+        <h2>Cerca Dati</h2>
+        
+        <div class="form-group">
+            <label for="station-name">Nome Stazione</label>
+            <textarea id="station-name" placeholder="Es: Rogoredo, Cadorna..."></textarea>
+            <div id="station-suggestions" class="autocomplete-suggestions"></div> <!-- Contenitore per i suggerimenti -->
+        </div>
+        
+        <div class="form-group">
+            <label for="sheet-name">Nome Foglio (opzionale)</label>
+            <textarea id="sheet-name" placeholder="Lascia vuoto per cercare nel primo foglio. Compila se il file ne ha più di uno."></textarea>
+        </div>
+
+        <button id="process-button">Cerca Dati nei File Selezionati</button>
+
+        <div id="data-results">
+            <!-- I risultati della ricerca appariranno qui -->
+        </div>
+    </div>
+
+    <script>
+
+    // ==========================================================
+    // SEZIONE 1: LOGICA PER IL WORKFLOW DI SINCRONIZZAZIONE
+    // ==========================================================
+    
+    const SYNC_WEBHOOK_URL = 'https://my-automation-test.duckdns.org/webhook/workflow2-sync';
+    const LOCAL_STORAGE_KEY = 'atm_synced_files';
+
+    const syncButton = document.getElementById('sync-button');
+    const fileListContainer = document.getElementById('file-list');
+
+    function displayFiles(files) {
+        if (!files || files.length === 0) {
+            fileListContainer.innerHTML = '<p>Nessun file trovato. Clicca per sincronizzare.</p>';
+            return;
+        }
+        let htmlContent = '<h3>Seleziona i file da analizzare:</h3>';
+        files.forEach(file => {
+            htmlContent += `
+                <label class="file-item">
+                    <input type="checkbox" name="file" value="${file.id}">
+                    ${file.name}
+                </label>`;
+        });
+        fileListContainer.innerHTML = htmlContent;
+    }
+
+    function syncAndSaveFiles() {
+        fileListContainer.innerHTML = '<p>Sincronizzazione dei file in corso...</p>';
+        fetch(SYNC_WEBHOOK_URL, { method: 'POST' })
+            .then(response => {
+                if (!response.ok) throw new Error('Errore dal server: ' + response.statusText);
+                return response.json();
+            })
+            .then(data => {
+                const files = [].concat(data).flat(); 
+                localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(files));
+                displayFiles(files);
+            })
+            .catch(error => {
+                console.error('ERRORE durante la sincronizzazione:', error);
+                fileListContainer.innerHTML = '<p style="color:red;">Errore durante la sincronizzazione! Controlla la console.</p>';
+            });
+    }
+
+    function loadFilesFromStorage() {
+        const savedFilesJSON = localStorage.getItem(LOCAL_STORAGE_KEY);
+        if (savedFilesJSON) {
+            const savedFiles = JSON.parse(savedFilesJSON);
+            displayFiles(savedFiles);
+        } else {
+            fileListContainer.innerHTML = '<p>Clicca il pulsante per sincronizzare i file da Drive.</p>';
+        }
+    }
+
+    syncButton.addEventListener('click', syncAndSaveFiles);
+    document.addEventListener('DOMContentLoaded', loadFilesFromStorage);
+
+
+    // ==========================================================
+    // SEZIONE 2: LOGICA PER IL WORKFLOW DI RICERCA DATI
+    // ==========================================================
+
+    const SEARCH_WEBHOOK_URL = 'https://my-automation-test.duckdns.org/webhook/workflow1-search';
+    
+    const processButton = document.getElementById('process-button');
+    const stationNameTextarea = document.getElementById('station-name');
+    const sheetNameTextarea = document.getElementById('sheet-name');
+    const dataResultsContainer = document.getElementById('data-results');
+
+    processButton.addEventListener('click', () => {
+        const stationName = stationNameTextarea.value;
+        const sheetName = sheetNameTextarea.value.trim();
+        const selectedCheckboxes = document.querySelectorAll('#file-list input[type="checkbox"]:checked');
+        
+        if (!stationName) {
+            alert('Per favore, inserisci un nome di stazione.');
+            return;
+        }
+        if (selectedCheckboxes.length === 0) {
+            alert('Per favore, seleziona almeno un file.');
+            return;
+        }
+
+        const selectedFiles = Array.from(selectedCheckboxes).map(checkbox => ({
+            id: checkbox.value,
+            name: checkbox.parentElement.innerText.trim()
+        }));
+
+        dataResultsContainer.innerHTML = '<p>Ricerca dati in corso...</p>';
+        
+        const payload = {
+            station: stationName,
+            files: selectedFiles
+        };
+
+        if (sheetName) {
+            payload.sheet = sheetName;
+        }
+
+        fetch(SEARCH_WEBHOOK_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+        .then(response => {
+            if (!response.ok) throw new Error('Errore dal server: ' + response.statusText);
+            return response.json();
+        })
+        .then(results => {
+            displayResultsAsTable(results);
+        })
+        .catch(error => {
+            console.error('ERRORE Workflow di ricerca:', error);
+            dataResultsContainer.innerHTML = '<p style="color:red;">Errore! Controlla la console.</p>';
+        });
+    });
+    
+    function displayResultsAsTable(results) {
+        if (!results || results.length === 0) {
+            dataResultsContainer.innerHTML = '<p>Nessun dato trovato per la stazione specificata.</p>';
+            return;
+        }
+        
+        const resultsArray = [].concat(results).flat();
+        
+        if (resultsArray.length === 0) {
+             dataResultsContainer.innerHTML = '<p>Nessun dato trovato per la stazione specificata.</p>';
+            return;
+        }
+
+        const headers = Object.keys(resultsArray[0]);
+
+        let tableHtml = `
+            <div style="text-align: right; margin-bottom: 10px;">
+                <button onclick="copyTable()" style="width: auto; font-size: 12px; padding: 5px 10px; background-color: #28a745;">Copia Tabella</button>
+            </div>
+            <div class="table-wrapper">
+                <table id="results-table">
+                    <thead>
+                        <tr>${headers.map(header => `<th>${header}</th>`).join('')}</tr>
+                    </thead>
+                    <tbody>
+                        ${resultsArray.map(row => `
+                            <tr>
+                                ${headers.map(header => `<td>${row[header] || ''}</td>`).join('')}
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>`;
+        
+        dataResultsContainer.innerHTML = tableHtml;
+    }
+
+    function copyTable() {
+        const table = document.getElementById('results-table');
+        if (!table) return;
+
+        let textToCopy = '';
+        for (const row of table.rows) {
+            textToCopy += Array.from(row.cells).map(cell => cell.innerText).join('\t') + '\n';
+        }
+
+        navigator.clipboard.writeText(textToCopy).then(() => {
+            alert('Tabella copiata negli appunti!');
+        }).catch(err => {
+            console.error('Errore durante la copia:', err);
+            alert('Impossibile copiare la tabella.');
+        });
+    }
+
+
+    // ==========================================================
+    // SEZIONE 3: LOGICA PER L'AUTOCOMPLETE DELLE STAZIONI
+    // ==========================================================
+
+    const stationSuggestionsContainer = document.getElementById('station-suggestions');
+
+    // Lista di esempio delle stazioni. In futuro potresti caricarla da un file o da un altro workflow.
+        // Lista completa delle stazioni, senza duplicati e ordinata alfabeticamente.
+    const allStations = [
+        "Affori Centro",
+        "Affori FN",
+        "Amendola Fiera",
+        "Bande Nere",
+        "Bisceglie",
+        "Bonola",
+        "Brenta",
+        "Buonarroti",
+        "Cadorna",
+        "Cairoli",
+        "Caterina da Forlì",
+        "Centrale",
+        "Comasina",
+        "Conciliazione",
+        "Cordusio",
+        "Corvetto",
+        "Crocetta",
+        "De Angeli",
+        "Dergano",
+        "Duomo",
+        "Forlanini",
+        "Gambara",
+        "Garibaldi FS",
+        "Gorla",
+        "Inganni",
+        "Lampugnano",
+        "Lima",
+        "Lodi",
+        "Loreto",
+        "Lotto",
+        "Maciachini",
+        "Missori",
+        "Molino Dorino",
+        "Montenapoleone",
+        "Pagano",
+        "Palestro",
+        "Pasteur",
+        "Pero",
+        "Porta Genova",
+        "Porta Nuova",
+        "Porta Romana",
+        "Porta Venezia",
+        "Porto di Mare",
+        "Precotto",
+        "Primaticcio",
+        "QT8",
+        "Quarto Oggiaro",
+        "Repubblica",
+        "Rho-Fiera",
+        "Rogoredo",
+        "Rovereto",
+        "San Babila",
+        "San Donato",
+        "San Leonardo",
+        "Sesto FS",
+        "Sesto Marelli",
+        "Sesto Rondò",
+        "Sondrio",
+        "Turati",
+        "Turro",
+        "Uruguay",
+        "Villa San Giovanni",
+        "Wagner",
+        "Zara"
+    ];
+
+    stationNameTextarea.addEventListener('input', () => {
+        const inputText = stationNameTextarea.value.toLowerCase();
+        
+        if (inputText.length === 0) {
+            stationSuggestionsContainer.innerHTML = '';
+            stationSuggestionsContainer.style.display = 'none';
+            return;
+        }
+
+        const filteredStations = allStations.filter(station => 
+            station.toLowerCase().startsWith(inputText)
+        );
+
+        if (filteredStations.length > 0) {
+            let suggestionsHtml = '';
+            filteredStations.forEach(station => {
+                suggestionsHtml += `<div class="suggestion-item">${station}</div>`;
+            });
+            stationSuggestionsContainer.innerHTML = suggestionsHtml;
+            stationSuggestionsContainer.style.display = 'block';
+        } else {
+            stationSuggestionsContainer.innerHTML = '';
+            stationSuggestionsContainer.style.display = 'none';
+        }
+    });
+
+    stationSuggestionsContainer.addEventListener('click', (event) => {
+        if (event.target.classList.contains('suggestion-item')) {
+            stationNameTextarea.value = event.target.textContent;
+            stationSuggestionsContainer.innerHTML = '';
+            stationSuggestionsContainer.style.display = 'none';
+        }
+    });
+
+    // Nasconde i suggerimenti se l'utente clicca fuori
+    document.addEventListener('click', (event) => {
+        if (!stationNameTextarea.contains(event.target) && !stationSuggestionsContainer.contains(event.target)) {
+            stationSuggestionsContainer.style.display = 'none';
+        }
+    });
+
+
+    </script>
+
+</body>
+</html>
