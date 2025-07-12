@@ -314,15 +314,53 @@
         const table = document.getElementById('results-table');
         if (!table) return;
 
+        // 1. Crea la versione HTML della tabella
+        // Aggiungiamo stili in linea basilari per assicurarci che abbia un aspetto decente in Gmail
+        const htmlToCopy = `
+            <style>
+                table { border-collapse: collapse; width: 100%; }
+                th, td { border: 1px solid #dddddd; text-align: left; padding: 8px; }
+                th { background-color: #f2f2f2; }
+            </style>
+            ${table.outerHTML}`;
+
+        // 2. Crea la versione testo puro (come fallback)
         let textToCopy = '';
         for (const row of table.rows) {
             textToCopy += Array.from(row.cells).map(cell => cell.innerText).join('\t') + '\n';
         }
+        
+        // 3. Usa l'API avanzata per scrivere entrambi i formati negli appunti
+        try {
+            const blobHtml = new Blob([htmlToCopy], { type: 'text/html' });
+            const blobText = new Blob([textToCopy], { type: 'text/plain' });
+            
+            const clipboardItem = new ClipboardItem({
+                'text/html': blobHtml,
+                'text/plain': blobText,
+            });
 
-        navigator.clipboard.writeText(textToCopy).then(() => {
-            alert('Tabella copiata negli appunti!');
+            navigator.clipboard.write([clipboardItem]).then(() => {
+                alert('Tabella copiata negli appunti!');
+            }).catch(err => {
+                console.error('Errore durante la copia (metodo avanzato):', err);
+                // Fallback al metodo solo testo se il primo fallisce
+                fallbackCopyText(textToCopy);
+            });
+
+        } catch (error) {
+            console.error('Clipboard API avanzata non supportata, uso il fallback:', error);
+            // Fallback per browser più vecchi che non supportano ClipboardItem
+            fallbackCopyText(textToCopy);
+        }
+    }
+
+    // Funzione di fallback nel caso in cui l'API avanzata non sia supportata
+    function fallbackCopyText(text) {
+        navigator.clipboard.writeText(text).then(() => {
+            alert('Tabella copiata come testo semplice!');
         }).catch(err => {
-            console.error('Errore durante la copia:', err);
+            console.error('Errore durante la copia (metodo di fallback):', err);
             alert('Impossibile copiare la tabella.');
         });
     }
