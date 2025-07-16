@@ -273,12 +273,13 @@
         });
     });
     
-    function displayResultsAsTable(results) {
+        function displayResultsAsTable(results) {
         if (!results || results.length === 0) {
             dataResultsContainer.innerHTML = '<p>Nessun dato trovato per la stazione specificata.</p>';
             return;
         }
-        
+
+        // Assicura che i risultati siano sempre un array piatto
         const resultsArray = [].concat(results).flat();
         
         if (resultsArray.length === 0) {
@@ -286,51 +287,80 @@
             return;
         }
 
-        const headers = Object.keys(resultsArray[0]);
+        // 1. RAGGRUPPA I RISULTATI PER NOME DEL FILE
+        const groupedByFile = resultsArray.reduce((acc, row) => {
+            // Usa 'fileName' come chiave per raggruppare. Se manca, usa un nome di default.
+            const fileName = row.fileName || 'Risultati non raggruppati';
+            if (!acc[fileName]) {
+                acc[fileName] = []; // Crea un nuovo gruppo se è la prima volta che vediamo questo file
+            }
+            acc[fileName].push(row); // Aggiungi la riga al suo gruppo
+            return acc;
+        }, {});
 
-        let tableHtml = `
-            <div style="text-align: right; margin-bottom: 10px;">
-                <button onclick="copyTable()" style="width: auto; font-size: 12px; padding: 5px 10px; background-color: #28a745;">Copia Tabella</button>
-            </div>
-            <div class="table-wrapper">
-                <table id="results-table">
-                    <thead>
-                        <tr>${headers.map(header => `<th>${header}</th>`).join('')}</tr>
-                    </thead>
-                    <tbody>
-                        ${resultsArray.map(row => `
-                            <tr>
-                                ${headers.map(header => `<td>${row[header] || ''}</td>`).join('')}
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
-            </div>`;
+        // 2. CREA L'HTML, UNA TABELLA PER OGNI GRUPPO
+        let finalHtml = '';
+        for (const fileName in groupedByFile) {
+            const fileRows = groupedByFile[fileName];
+            // Estrae gli header dalla prima riga del gruppo, escludendo 'fileName' dalla visualizzazione
+            const headers = Object.keys(fileRows[0]).filter(key => key !== 'fileName');
+
+            finalHtml += `
+                <div class="result-group" style="margin-bottom: 30px;">
+                    <h3 style="border-bottom: 2px solid #005A9C; padding-bottom: 5px; color: #333;">Risultati da: ${fileName}</h3>
+                    <div style="text-align: right; margin-bottom: 10px;">
+                        <button onclick="copyTable(this)" style="width: auto; font-size: 12px; padding: 5px 10px; background-color: #28a745;">Copia Tabella</button>
+                    </div>
+                    <div class="table-wrapper">
+                        <table class="results-table"> <!-- Usiamo una classe per poter selezionare la tabella giusta -->
+                            <thead>
+                                <tr>${headers.map(header => `<th>${header}</th>`).join('')}</tr>
+                            </thead>
+                            <tbody>
+                                ${fileRows.map(row => `
+                                    <tr>
+                                        ${headers.map(header => `<td>${row[header] || ''}</td>`).join('')}
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>`;
+        }
         
-        dataResultsContainer.innerHTML = tableHtml;
-    }
+        dataResultsContainer.innerHTML = finalHtml;
+    }     
+       
+    function copyTable(button) {
+        // 1. Trova la tabella corretta risalendo al genitore '.result-group'
+        //    e poi cercando la tabella '.results-table' al suo interno.
+        const table = button.closest('.result-group').querySelector('.results-table');
+        
+        if (!table) {
+            console.error("Impossibile trovare la tabella da copiare.");
+            alert("Errore: tabella non trovata.");
+            return;
+        }
 
-    function copyTable() {
-        const table = document.getElementById('results-table');
-        if (!table) return;
-
-        // 1. Crea la versione HTML della tabella
-        // Aggiungiamo stili in linea basilari per assicurarci che abbia un aspetto decente in Gmail
+        // 2. Crea la versione HTML della tabella per un incollaggio ricco di formato.
+        //    Vengono aggiunti stili CSS di base direttamente nell'HTML per garantire
+        //    una buona resa in client di posta come Gmail.
         const htmlToCopy = `
             <style>
-                table { border-collapse: collapse; width: 100%; }
-                th, td { border: 1px solid #dddddd; text-align: left; padding: 8px; }
-                th { background-color: #f2f2f2; }
+                table { border-collapse: collapse; width: 100%; font-family: sans-serif; }
+                th, td { border: 1px solid #cccccc; text-align: left; padding: 8px; }
+                th { background-color: #f2f2f2; font-weight: bold; }
             </style>
             ${table.outerHTML}`;
 
-        // 2. Crea la versione testo puro (come fallback)
+        // 3. Crea la versione testo puro (con tabulazioni) come fallback.
+        //    Questo formato è ideale per incollare i dati direttamente in Excel.
         let textToCopy = '';
         for (const row of table.rows) {
             textToCopy += Array.from(row.cells).map(cell => cell.innerText).join('\t') + '\n';
         }
         
-        // 3. Usa l'API avanzata per scrivere entrambi i formati negli appunti
+        // 4. Prova a usare l'API avanzata "ClipboardItem" per scrivere entrambi i formati.
         try {
             const blobHtml = new Blob([htmlToCopy], { type: 'text/html' });
             const blobText = new Blob([textToCopy], { type: 'text/plain' });
@@ -341,24 +371,37 @@
             });
 
             navigator.clipboard.write([clipboardItem]).then(() => {
-                alert('Tabella copiata negli appunti!');
+                // Feedback visivo per l'utente
+                const originalText = button.textContent;
+                button.textContent = 'Copiato!';
+                button.style.backgroundColor = '#218838'; // Verde più scuro per successo
+                setTimeout(() => {
+                    button.textContent = originalText;
+                    button.style.backgroundColor = '#28a745'; // Colore originale
+                }, 2000);
             }).catch(err => {
                 console.error('Errore durante la copia (metodo avanzato):', err);
-                // Fallback al metodo solo testo se il primo fallisce
-                fallbackCopyText(textToCopy);
+                fallbackCopyText(textToCopy, button); // Usa il fallback se fallisce
             });
 
         } catch (error) {
-            console.error('Clipboard API avanzata non supportata, uso il fallback:', error);
-            // Fallback per browser più vecchi che non supportano ClipboardItem
-            fallbackCopyText(textToCopy);
+            console.error('API ClipboardItem non supportata, uso il fallback:', error);
+            // Fallback per browser meno recenti che non supportano ClipboardItem
+            fallbackCopyText(textToCopy, button);
         }
     }
 
-    // Funzione di fallback nel caso in cui l'API avanzata non sia supportata
-    function fallbackCopyText(text) {
+    // Funzione di fallback che gestisce solo il testo semplice.
+    // Viene chiamata se il metodo avanzato non è disponibile o fallisce.
+    function fallbackCopyText(text, button) {
         navigator.clipboard.writeText(text).then(() => {
-            alert('Tabella copiata come testo semplice!');
+            const originalText = button.textContent;
+            button.textContent = 'Copiato!';
+            button.style.backgroundColor = '#218838';
+            setTimeout(() => {
+                button.textContent = originalText;
+                button.style.backgroundColor = '#28a745';
+            }, 2000);
         }).catch(err => {
             console.error('Errore durante la copia (metodo di fallback):', err);
             alert('Impossibile copiare la tabella.');
@@ -441,8 +484,8 @@
         "Zara"
     ];
 
-    stationNameTextarea.addEventListener('input', () => {
-        const inputText = stationNameTextarea.value.toLowerCase();
+        stationNameTextarea.addEventListener('input', () => {
+        const inputText = stationNameTextarea.value.trim().toLowerCase();
         
         if (inputText.length === 0) {
             stationSuggestionsContainer.innerHTML = '';
@@ -450,8 +493,16 @@
             return;
         }
 
+        // Creiamo un'espressione regolare "intelligente"
+        // 1. Separa l'input in parole (es. "p r" diventa ["p", "r"])
+        // 2. Crea una regex che cerca parole che iniziano con quelle lettere, in qualsiasi ordine.
+        const searchTerms = inputText.split(/\s+/);
+        const regexString = searchTerms.map(term => `(?=.*\\b${term})`).join('');
+        const searchRegex = new RegExp(regexString, 'i'); // 'i' per case-insensitive
+
+        // Filtra le stazioni usando la nuova regex
         const filteredStations = allStations.filter(station => 
-            station.toLowerCase().startsWith(inputText)
+            searchRegex.test(station)
         );
 
         if (filteredStations.length > 0) {
